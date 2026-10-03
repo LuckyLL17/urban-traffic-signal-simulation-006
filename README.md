@@ -28,3 +28,13 @@ npm run dev
 - 疏散场景、封闭路口和上游拥堵外溢推演
 
 扩展接口：`/api/corridors`、`/api/priority-requests`、`/api/pedestrian-phase`、`/api/evacuation-scenarios`、`/api/simulations/:id/emissions`。
+
+### 排放报告场景选择
+
+`POST /api/simulations/:id/emissions` 支持在请求体中传入 `scenario`：
+
+- 省略：保持旧行为——有 candidate 用 candidate，否则用 baseline，返回单层排放估算
+- `"baseline"` / `"candidate"`：分别基于对应运行结果估算（无 candidate 却请求时返回 409）
+- `"compare"`：同时返回 `baseline`、`candidate` 两组估算及 `delta` 差值（无 candidate 时返回 409）
+
+`vehicleKm` 省略时默认 12000；`0` 返回零值报告；负数或非数值返回 400。报告为纯计算，不会修改已保存的仿真结果。
