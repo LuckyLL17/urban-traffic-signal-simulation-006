@@ -24,7 +24,7 @@ npm run dev
 - 路口走廊协调与基于车速的绿波 offset 计算
 - 公交、应急车辆优先请求及乘客量/请求类型决策
 - 行人过街、无障碍和最小安全过街时间校验
-- 仿真后的 CO2、NOx、怠速小时估算
+- 仿真后的 CO2、NOx、怠速小时估算（`/api/simulations/:id/emissions` 支持 `scenario=baseline|candidate|compare`；省略时保持旧行为，有 candidate 用 candidate、否则用 baseline；请求 candidate/compare 但仿真无 candidate 时返回 409；`vehicleKm` 缺省 12000，须为 ≥0 的数字；报告为只读，不改动已保存的仿真结果）
 - 疏散场景、封闭路口和上游拥堵外溢推演
 
 扩展接口：`/api/corridors`、`/api/priority-requests`、`/api/pedestrian-phase`、`/api/evacuation-scenarios`、`/api/simulations/:id/emissions`。

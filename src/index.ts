@@ -51,7 +51,26 @@ app.get('/api/corridors',async()=>corridors);
 app.post('/api/corridors/:id/coordinate',async(req:any,res)=>{const c=corridors.find(x=>x.id===(req.params as any).id);if(!c)return res.code(404).send({error:'corridor not found'});const b=req.body as any;const speedKph=Number(b.speedKph||c.targetSpeedKph);if(speedKph<10||speedKph>70)return res.code(400).send({error:'speedKph must be 10-70'});const cycle=Math.max(...c.intersectionIds.map((id:string)=>intersections.find(x=>x.id===id)?.cycle||60));const offsets:any={};let distanceSeconds=0;for(const id of c.intersectionIds){const j=intersections.find(x=>x.id===id)!;distanceSeconds+=c.lengthMeters/c.intersectionIds.length/(speedKph/3.6);offsets[id]=Math.round(distanceSeconds%cycle);j.offset=offsets[id];}const plan={id:randomUUID(),corridorId:c.id,cycleSeconds:cycle,speedKph,offsets,createdAt:now(),status:'coordinated'};plans.push(plan);log('corridor.coordinate',plan);return plan;});
 app.post('/api/priority-requests',async(req:any,res)=>{const b=req.body as any;if(!b.intersectionId||!b.routeId||b.etaSeconds==null)return res.code(400).send({error:'intersectionId、routeId、etaSeconds 必填'});const j=intersections.find(x=>x.id===b.intersectionId);if(!j)return res.code(404).send({error:'intersection not found'});const r={id:randomUUID(),intersectionId:b.intersectionId,routeId:b.routeId,etaSeconds:Number(b.etaSeconds),passengers:Number(b.passengers||0),requestType:b.requestType||'transit',status:'requested',requestedAt:now()};r.approved=r.passengers>=20||r.requestType==='emergency';r.status=r.approved?'approved':'deferred';priorityRequests.push(r);log('priority.request',r);return r;});
 app.post('/api/pedestrian-phase',async(req:any,res)=>{const b=req.body as any;if(!b.intersectionId||b.crossingSeconds==null)return res.code(400).send({error:'intersectionId 和 crossingSeconds 必填'});const crossing=Number(b.crossingSeconds);if(crossing<7||crossing>60)return res.code(400).send({error:'crossingSeconds must be 7-60'});const j=intersections.find(x=>x.id===b.intersectionId);if(!j)return res.code(404).send({error:'intersection not found'});const p={id:randomUUID(),intersectionId:j.id,crossingSeconds:crossing,leadingInterval:Number(b.leadingInterval||3),accessible:Boolean(b.accessible),status:'validated',createdAt:now()};scenarioPolicies.push(p);return p;});
-app.post('/api/simulations/:id/emissions',async(req:any,res)=>{const r=runs.find(x=>x.id===(req.params as any).id);if(!r)return res.code(404).send({error:'simulation not found'});const vkt=Number((req.body as any)?.vehicleKm||12000);const stopPenalty=(r.candidate?.totalDelay??r.baseline.totalDelay)/Math.max(1,r.baseline.horizon);return{simulationId:r.id,vehicleKm:vkt,co2Kg:Number((vkt*(.142+stopPenalty*.0008)).toFixed(2)),noxGrams:Number((vkt*(.32+stopPenalty*.0015)).toFixed(2)),idleHours:Number((stopPenalty*vkt/3600).toFixed(2)),method:'speed-delay surrogate model'};});
+// Emissions report is read-only: it must never mutate the stored simulation run.
+const emissionsFor=(source:any,vkt:number)=>{const stopPenalty=source.totalDelay/Math.max(1,source.horizon);return{co2Kg:Number((vkt*(.142+stopPenalty*.0008)).toFixed(2)),noxGrams:Number((vkt*(.32+stopPenalty*.0015)).toFixed(2)),idleHours:Number((stopPenalty*vkt/3600).toFixed(2))};};
+app.post('/api/simulations/:id/emissions',async(req:any,res)=>{
+ const r=runs.find(x=>x.id===(req.params as any).id);
+ if(!r)return res.code(404).send({error:'simulation not found'});
+ const b=req.body as any;
+ let scenario=(b?.scenario??(req.query as any)?.scenario)?.toString().toLowerCase();
+ if(scenario==='comparison')scenario='compare';
+ if(scenario!=null&&!['baseline','candidate','compare'].includes(scenario))return res.code(400).send({error:'scenario 必须是 baseline、candidate 或 compare'});
+ const rawVkt=b?.vehicleKm;
+ const vkt=rawVkt==null||rawVkt===''?12000:Number(rawVkt);
+ if(!Number.isFinite(vkt)||vkt<0)return res.code(400).send({error:'vehicleKm 必须是大于等于 0 的数字'});
+ const method='speed-delay surrogate model';
+ if(!scenario){const source=r.candidate??r.baseline;return{simulationId:r.id,vehicleKm:vkt,...emissionsFor(source,vkt),method};}
+ if(scenario==='baseline')return{simulationId:r.id,scenario,vehicleKm:vkt,...emissionsFor(r.baseline,vkt),method};
+ if(!r.candidate)return res.code(409).send({error:'simulation has no candidate run'});
+ if(scenario==='candidate')return{simulationId:r.id,scenario,vehicleKm:vkt,...emissionsFor(r.candidate,vkt),method};
+ const baseline=emissionsFor(r.baseline,vkt),candidate=emissionsFor(r.candidate,vkt);
+ return{simulationId:r.id,scenario,vehicleKm:vkt,baseline,candidate,delta:{co2Kg:Number((candidate.co2Kg-baseline.co2Kg).toFixed(2)),noxGrams:Number((candidate.noxGrams-baseline.noxGrams).toFixed(2)),idleHours:Number((candidate.idleHours-baseline.idleHours).toFixed(2))},method};
+});
 app.post('/api/evacuation-scenarios',async(req:any)=>{const b=req.body as any;const blocked=(b.blockedIntersections||[]) as string[];const original=incidents.length;for(const id of blocked)incidents.push({id:randomUUID(),intersectionId:id,type:'evacuation-block',severity:'high',status:'active',startedAt:now()});const result=simulate({horizon:b.horizon||1800,demand:b.demand});incidents.splice(original);return{id:randomUUID(),type:'evacuation',blockedIntersections:blocked,result,recommendation:result.spillbacks>3?'open reversible lanes and meter upstream inflow':'maintain coordinated offsets'};});
 app.get('/api/priority-requests',async()=>priorityRequests);
 
